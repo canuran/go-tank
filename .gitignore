@@ -1,0 +1,9 @@
+*.exe
+*.log
+*.temp
+.vscode
+.idea
+bin
+pkg
+temp
+output
