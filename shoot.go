@@ -87,7 +87,6 @@ func (b *Bullet) hitTank(other *Tank) bool {
 func (h *Hero) ListenShoot() {
 	h.UpdateBullet()
 	if !h.checkHealth() {
-		h.game.Restart()
 		return
 	}
 	if h.shootLimit < ShootLimiter {
@@ -108,13 +107,7 @@ func (h *Hero) checkHealth() bool {
 	if h.hitStatus > 0 {
 		h.hitStatus--
 		if h.hitStatus == 0 && h.life < 1 {
-			h.game.score = 0
-			h.game.pause = true
-			h.life = HeroInitLife
-			h.hitStatus = LiveHitStatus
-			h.A = AnglePi
-			h.X = (float64(h.game.width) - h.W) / 2
-			h.Y = (float64(h.game.height) - h.H) / 2
+			h.game.Restart()
 			return false
 		}
 	}
@@ -150,6 +143,7 @@ func (e *Enemy) checkHealth() bool {
 	if e.hitStatus > 0 {
 		e.hitStatus--
 		if e.hitStatus == 0 && e.life < 1 {
+			// 重生在随机位置且不碰撞
 			e.life = 1
 			e.shootLimit = -120
 			minX, minY, maxX, maxY := float64(1), float64(1), float64(1), float64(1)
