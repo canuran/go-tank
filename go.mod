@@ -1,4 +1,4 @@
-module github.com/canuran/go-learns
+module github.com/canuran/go-tank
 
 go 1.18
 
