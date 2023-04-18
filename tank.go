@@ -9,10 +9,8 @@ import (
 )
 
 const (
-	HeroInitLife  = 9
-	ShootLimiter  = 100
-	DieHitStatus  = 30
-	LiveHitStatus = 180
+	ShootCooled  = 180
+	DieHitStatus = 30
 )
 
 var (
@@ -24,16 +22,19 @@ var (
 
 type Tank struct {
 	*BoxSprite
-	typ         int
-	game        *Game
-	speed       float64
-	bulletSize  float64
-	bulletSpeed float64
-	bullet      *Bullet
-	shootLimit  int
-	hitSprites  [5]SpriteInfo
-	hitStatus   int
-	life        int
+	typ           int
+	game          *Game
+	life          int
+	maxLife       int
+	speed         float64
+	bulletSize    float64
+	bulletSpeed   float64
+	bullet        *Bullet
+	shootCool     int           // 射击冷却程度
+	shootCoolDown int           // 射击冷却速度
+	hitSprites    [5]SpriteInfo // 爆炸动画，被击中且死亡时播放
+	hitStatus     int           // 大于0表示被击中，免疫攻击
+	hitProtect    int           // 击中后的免疫时间
 }
 
 type Hero struct {
@@ -58,18 +59,16 @@ func (tk *Tank) Draw(screen *ebiten.Image) {
 	} else {
 		tk.BoxSprite.Draw(screen)
 	}
+	if tk.life > 0 {
+		text.Draw(screen, strconv.Itoa(tk.life), tk.game.chsFont,
+			int(tk.X+float64(tk.W)/2-5), int(tk.Y+float64(tk.H)/2+5),
+			LifeColors[(tk.life*len(LifeColors)-1)/tk.maxLife])
+	}
 	bullet := tk.bullet
 	for bullet != nil {
 		bullet.Draw(screen)
 		bullet = bullet.next
 	}
-}
-
-func (h *Hero) Draw(screen *ebiten.Image) {
-	h.Tank.Draw(screen)
-	text.Draw(screen, strconv.Itoa(h.life), h.game.chsFont,
-		int(h.X+float64(h.W)/2-5), int(h.Y+float64(h.H)/2+5),
-		LifeColors[(h.life*len(LifeColors)-1)/HeroInitLife])
 }
 
 func (tk *Tank) CollideOthers() (minX, minY, maxX, maxY float64) {
@@ -107,7 +106,7 @@ func (tk *Tank) CollideOthers() (minX, minY, maxX, maxY float64) {
 	return
 }
 
-func (h *Hero) ListenMove() {
+func (h *Hero) UpdateMove() {
 	if h.life < 1 {
 		return
 	}
@@ -189,7 +188,7 @@ func (e *Enemy) AutoMove() {
 	if e.game.updates%(1+rand.Intn(180)) == 0 {
 		e.A = TankAngles[rand.Intn(len(TankAngles))]
 	}
-	e.speed = math.Min(TankSpeeds[e.typ]*float64(1000+e.game.score)/1000, 10)
+	e.speed = TankSpeeds[e.typ] * (1 + float64(e.game.score)/1000)
 	e.Tank.Move()
 }
 

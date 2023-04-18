@@ -32,8 +32,8 @@ func (b *Bullet) HitCheck() {
 	// 子弹是否与敌方坦克碰撞
 	if b.tank == b.game.hero.Tank {
 		for other := b.game.enemy; other != nil; other = other.Next {
-			if b.hitTank(other.Value.Tank) {
-				b.game.score += int(b.speed)
+			if b.hitTank(other.Value.Tank) || b.hitBullets(other.Value.Tank.bullet) {
+				b.game.score += int(other.Value.speed)
 				if b.game.highScore < b.game.score {
 					b.game.highScore = b.game.score
 				}
@@ -41,40 +41,51 @@ func (b *Bullet) HitCheck() {
 			}
 		}
 	} else {
-		if b.hitTank(b.game.hero.Tank) {
+		if b.hitTank(b.game.hero.Tank) || b.hitBullets(b.game.hero.Tank.bullet) {
 			return
 		}
 	}
 
+	b.hitTrees()
+}
+
+func (b *Bullet) hitTrees() bool {
 	// 子弹是否与树碰撞
 	for tree := b.game.ground.trees; tree != nil; tree = tree.Next {
 		if cx, cy := b.CollideXY(tree.Value); cx != 0 && cy != 0 {
 			b.X = -1000 // 子弹失效
+			return true
 		}
 	}
+	return false
 }
 
 func (b *Bullet) hitTank(other *Tank) bool {
 	// 是否击中敌方坦克
 	if cx, cy := b.CollideXY(other.BoxSprite); cx != 0 && cy != 0 {
-		if other.life > 0 { // 死亡的坦克不能被击中
-			if other.hitStatus < 1 { // 坦克受攻击保护
-				_ = other.game.hitAudio.Rewind()
-				other.game.hitAudio.Play()
+		if other.life > 0 { // 活着的坦克才能被击中
+			if other.hitStatus < 1 { // 坦克未受攻击保护
 				other.life--
 				if other.life < 1 {
 					other.hitStatus = DieHitStatus
+					_ = other.game.explodeAudio.Rewind()
+					other.game.explodeAudio.Play()
 				} else {
-					other.hitStatus = LiveHitStatus
+					other.hitStatus = other.hitProtect
+					_ = other.game.hitAudio.Rewind()
+					other.game.hitAudio.Play()
 				}
 			}
 			b.X = -1000 // 子弹失效
 			return true
 		}
 	}
+	return false
+}
 
+func (b *Bullet) hitBullets(bullet *Bullet) bool {
 	// 子弹是否与敌方子弹碰撞
-	for bullet := other.bullet; bullet != nil; bullet = bullet.next {
+	for ; bullet != nil; bullet = bullet.next {
 		if cx, cy := b.CollideXY(bullet.BoxSprite); cx != 0 && cy != 0 {
 			b.X = -1000      // 子弹失效
 			bullet.X = -1000 // 子弹失效
@@ -84,15 +95,14 @@ func (b *Bullet) hitTank(other *Tank) bool {
 	return false
 }
 
-func (h *Hero) ListenShoot() {
+func (h *Hero) UpdateShoot() {
 	h.UpdateBullet()
 	if !h.checkHealth() {
 		return
 	}
-	if h.shootLimit < ShootLimiter {
-		h.shootLimit += 15
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) || ebiten.IsKeyPressed(ebiten.KeyControl) ||
+	if h.shootCool < ShootCooled {
+		h.shootCool += h.shootCoolDown
+	} else if ebiten.IsKeyPressed(ebiten.KeyEnter) || ebiten.IsKeyPressed(ebiten.KeyControl) ||
 		ebiten.IsStandardGamepadButtonPressed(GamepadID, ebiten.StandardGamepadButtonFrontBottomLeft) ||
 		ebiten.IsStandardGamepadButtonPressed(GamepadID, ebiten.StandardGamepadButtonFrontBottomRight) ||
 		ebiten.IsStandardGamepadButtonPressed(GamepadID, ebiten.StandardGamepadButtonRightTop) ||
@@ -121,7 +131,7 @@ func (tk *Tank) UpdateBullet() {
 		for bullet := tk.bullet; bullet != nil; bullet = bullet.next {
 			bullet.AutoMove()
 			bullet.HitCheck()
-			preBullet = tk.checkBullet(preBullet, bullet)
+			preBullet = tk.removeInvalidBullet(preBullet, bullet)
 		}
 	}
 }
@@ -131,10 +141,10 @@ func (e *Enemy) AutoShoot() {
 	if !e.checkHealth() {
 		return
 	}
-	if e.shootLimit < ShootLimiter {
-		e.shootLimit += int(e.speed) / 2
-	}
-	if e.game.updates%(1+rand.Intn(120)) == 0 {
+	if e.shootCool < ShootCooled {
+		e.shootCool += e.shootCoolDown
+	} else if e.game.updates%(1+rand.Intn(120)) == 0 {
+		e.bulletSpeed = BulletSpeeds[e.typ] * (1 + float64(e.game.score)/1000)
 		e.shootBullet()
 	}
 }
@@ -143,27 +153,27 @@ func (e *Enemy) checkHealth() bool {
 	if e.hitStatus > 0 {
 		e.hitStatus--
 		if e.hitStatus == 0 && e.life < 1 {
-			// 重生在随机位置且不碰撞
-			e.life = 1
-			e.shootLimit = -120
-			minX, minY, maxX, maxY := float64(1), float64(1), float64(1), float64(1)
-			for minX != 0 || minY != 0 || maxX != 0 || maxY != 0 {
-				e.X = e.W + float64(rand.Intn(e.game.width-int(e.W)*2))
-				e.Y = e.H + float64(rand.Intn(e.game.height-int(e.H*2)))
-				minX, minY, maxX, maxY = e.CollideOthers()
-			}
+			e.reborn()
 			return false
 		}
 	}
 	return true
 }
 
-func (tk *Tank) shootBullet() {
-	if tk.shootLimit < ShootLimiter {
-		return
-	} else {
-		tk.shootLimit = 0
+func (e *Enemy) reborn() {
+	// 重生在随机位置且不碰撞
+	e.life = e.maxLife
+	e.shootCool = -180
+	minX, minY, maxX, maxY := float64(1), float64(1), float64(1), float64(1)
+	for minX != 0 || minY != 0 || maxX != 0 || maxY != 0 {
+		e.X = e.W + float64(rand.Intn(e.game.width-int(e.W)*2))
+		e.Y = e.H + float64(rand.Intn(e.game.height-int(e.H*2)))
+		minX, minY, maxX, maxY = e.CollideOthers()
 	}
+}
+
+func (tk *Tank) shootBullet() {
+	tk.shootCool = 0
 	img := GetSpriteImage(tk.game.spriteImages, tk.game.spritesInfos[BulletNames[tk.typ]])
 	tk.bullet = &Bullet{
 		BoxSprite: &BoxSprite{
@@ -201,7 +211,7 @@ func (tk *Tank) shootBullet() {
 	}
 }
 
-func (tk *Tank) checkBullet(preBullet *Bullet, bullet *Bullet) *Bullet {
+func (tk *Tank) removeInvalidBullet(preBullet *Bullet, bullet *Bullet) *Bullet {
 	if bullet.X < 0 || bullet.Y < 0 ||
 		bullet.X > float64(tk.game.width) || bullet.Y > float64(tk.game.height) {
 		if preBullet == nil {

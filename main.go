@@ -24,6 +24,8 @@ import (
 var (
 	//go:embed hit.ogg
 	HitSound []byte
+	//go:embed explode.ogg
+	ExplodeSound []byte
 	//go:embed chsfont.ttf
 	ChsFont     []byte
 	GamepadID   ebiten.GamepadID
@@ -33,9 +35,10 @@ var (
 	TankAngles  = []float64{AngleZero, AngleHalfPi, AnglePi, AngleTrebleHalfPi}
 
 	// TankNames 第1个是玩家坦克
-	TankNames   = []string{"tank_sand", "tank_dark", "tank_green", "tank_red", "tank_blue"}
-	TankSpeeds  = []float64{8, 3, 4, 5, 6}
-	BulletNames = []string{"bulletSand1_outline", "bulletDark1_outline", "bulletGreen1_outline", "bulletRed1_outline", "bulletBlue1_outline"}
+	TankNames    = []string{"tank_sand", "tank_dark", "tank_green", "tank_red", "tank_blue"}
+	TankSpeeds   = []float64{8, 3, 4, 5, 6}
+	BulletSpeeds = []float64{32, 4, 5, 6, 7}
+	BulletNames  = []string{"bulletSand1_outline", "bulletDark1_outline", "bulletGreen1_outline", "bulletRed1_outline", "bulletBlue1_outline"}
 )
 
 func main() {
@@ -55,7 +58,9 @@ func main() {
 	g.groundAudio = newInfinitePlayer(bytes.NewReader(audio2.Ragtime_ogg))
 	g.groundAudio.Play()
 	g.hitAudio = newPlayer(bytes.NewReader(HitSound))
-	g.hitAudio.SetVolume(0.5)
+	g.hitAudio.SetVolume(0.4)
+	g.explodeAudio = newPlayer(bytes.NewReader(ExplodeSound))
+	g.explodeAudio.SetVolume(0.6)
 	g.initGround()
 	g.Restart()
 
@@ -74,6 +79,7 @@ type Game struct {
 	spritesInfos  map[string]SpriteInfo
 	outputSprites bool
 	hitAudio      *audio.Player
+	explodeAudio  *audio.Player
 	groundAudio   *audio.Player
 	chsFont       font.Face
 	ground        *Ground
@@ -83,8 +89,8 @@ type Game struct {
 	score         int
 	highScore     int
 	pause         bool
-	pauseLimit    int
-	restartLimit  int
+	pauseCool     int
+	restartCool   int
 }
 
 type Ground struct {
@@ -101,15 +107,15 @@ func (g *Game) Update() error {
 		break
 	}
 
-	if g.pauseLimit < 30 {
-		g.pauseLimit++
+	if g.pauseCool < 30 {
+		g.pauseCool++
 	} else if ebiten.IsKeyPressed(ebiten.KeySpace) ||
 		ebiten.IsStandardGamepadButtonPressed(GamepadID, ebiten.StandardGamepadButtonCenterRight) {
-		g.pauseLimit = 0
+		g.pauseCool = 0
 		g.pause = !g.pause
 	}
-	if g.restartLimit < 30 {
-		g.restartLimit++
+	if g.restartCool < 30 {
+		g.restartCool++
 	} else if ebiten.IsKeyPressed(ebiten.KeyR) ||
 		ebiten.IsStandardGamepadButtonPressed(GamepadID, ebiten.StandardGamepadButtonCenterLeft) {
 		g.Restart()
@@ -118,8 +124,8 @@ func (g *Game) Update() error {
 		return nil
 	}
 
-	g.hero.ListenMove()
-	g.hero.ListenShoot()
+	g.hero.UpdateMove()
+	g.hero.UpdateShoot()
 	if g.pause {
 		return nil
 	}
@@ -134,7 +140,7 @@ func (g *Game) Update() error {
 
 func (g *Game) Restart() {
 	g.updates = 0
-	g.restartLimit = 0
+	g.restartCool = 0
 	g.pause = true
 	g.score = 0
 	g.initHero()
@@ -229,14 +235,17 @@ func (g *Game) initHero() {
 				W:   float64(sprite.Height),
 				H:   float64(sprite.Height),
 			},
-			game:        g,
-			typ:         0,
-			speed:       TankSpeeds[0],
-			bulletSize:  2,
-			bulletSpeed: 30,
-			hitStatus:   LiveHitStatus,
-			hitSprites:  g.tankHitSprites(),
-			life:        HeroInitLife,
+			game:          g,
+			typ:           0,
+			speed:         TankSpeeds[0],
+			bulletSize:    2,
+			bulletSpeed:   BulletSpeeds[0],
+			shootCoolDown: int(BulletSpeeds[0]),
+			hitStatus:     180,
+			hitProtect:    180,
+			hitSprites:    g.tankHitSprites(),
+			life:          9,
+			maxLife:       9,
 		},
 	}
 }
@@ -258,25 +267,20 @@ func (g *Game) initEnemies() {
 						W:   float64(sprite.Height),
 						H:   float64(sprite.Height),
 					},
-					game:        g,
-					typ:         typ,
-					speed:       TankSpeeds[typ],
-					bulletSize:  1.2,
-					bulletSpeed: TankSpeeds[typ] * 1.2,
-					hitSprites:  g.tankHitSprites(),
-					shootLimit:  -120,
-					life:        1,
+					game:          g,
+					typ:           typ,
+					maxLife:       typ,
+					speed:         TankSpeeds[typ],
+					bulletSize:    1.2,
+					bulletSpeed:   BulletSpeeds[typ],
+					shootCoolDown: int(BulletSpeeds[typ]),
+					hitSprites:    g.tankHitSprites(),
 				},
 			},
 			Next: g.enemy,
 		}
+		enemy.Value.reborn() // 出生
 		g.enemy = enemy
-		minX, minY, maxX, maxY := float64(1), float64(1), float64(1), float64(1)
-		for minX != 0 || minY != 0 || maxX != 0 || maxY != 0 {
-			enemy.Value.X = enemy.Value.W + float64(rand.Intn(g.width-int(enemy.Value.W)*2))
-			enemy.Value.Y = enemy.Value.H + float64(rand.Intn(g.height-int(enemy.Value.H*2)))
-			minX, minY, maxX, maxY = enemy.Value.CollideOthers()
-		}
 	}
 }
 
