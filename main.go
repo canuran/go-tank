@@ -66,6 +66,7 @@ func main() {
 
 	ebiten.SetWindowTitle(g.title)
 	ebiten.SetWindowSize(g.width, g.height)
+	ebiten.SetScreenClearedEveryFrame(false)
 	ebiten.SetWindowIcon([]image.Image{g.getIconImage()})
 	err = ebiten.RunGame(g)
 	FatalIfError(err)
@@ -148,7 +149,6 @@ func (g *Game) Restart() {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(colornames.Darkcyan)
 	g.ground.Draw(screen)
 	text.Draw(screen, "得分："+strconv.Itoa(g.score), g.chsFont, 3, 22, colornames.Aliceblue)
 	text.Draw(screen, "最高："+strconv.Itoa(g.highScore), g.chsFont, 3, 45, colornames.Aliceblue)
@@ -171,7 +171,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 }
 
-func (g *Game) Layout(_, _ int) (int, int) {
+func (g *Game) Layout(int, int) (int, int) {
 	return g.width, g.height
 }
 
