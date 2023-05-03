@@ -171,8 +171,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 }
 
-func (g *Game) Layout(int, int) (int, int) {
-	return g.width, g.height
+func (g *Game) Layout(width, height int) (int, int) {
+	return width, height
 }
 
 func (g *Ground) Draw(screen *ebiten.Image) {
